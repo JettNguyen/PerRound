@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Retailer {
+  id           String     @id // short slug, e.g. "sgammo"
+  name         String
+  homepage     String
+  platform     String // shopify | woocommerce
+  /// ShippingRule from @perround/shared
+  shipping     Json
+  shippingNote String?
+  shippingUrl  String?
+  noShipStates String[]   @default([])
+  lastCrawlAt  DateTime?
+  lastCrawlOk  Boolean?
+  listings     Listing[]
+  crawls       CrawlRun[]
+}
+
+/// One load (same caliber, maker, weight, bullet, case and condition), grouped across stores and box sizes.
+model Product {
+  id        Int       @id @default(autoincrement())
+  groupKey  String    @unique
+  category  String
+  caliber   String
+  brand     String?
+  grain     Float?
+  bullet    String?
+  casing    String?
+  condition String
+  shot      String?
+  listings  Listing[]
+
+  @@index([caliber])
+}
+
+/// One thing a store sells at one price: a box, a case, or a variant of either.
+model Listing {
+  id            Int             @id @default(autoincrement())
+  retailerId    String
+  retailer      Retailer        @relation(fields: [retailerId], references: [id])
+  externalId    String
+  url           String
+  title         String
+  imageUrl      String?
+  price         Decimal         @db.Decimal(10, 2)
+  rounds        Int?
+  inStock       Boolean
+  purchaseLimit Int?
+  shipsFree     Boolean         @default(false)
+  upc           String?
+  caliber       String
+  category      String
+  brand         String?
+  grain         Float?
+  bullet        String?
+  casing        String?
+  condition     String
+  shot          String?
+  productId     Int?
+  product       Product?        @relation(fields: [productId], references: [id])
+  firstSeenAt   DateTime        @default(now())
+  lastSeenAt    DateTime
+  lastChangedAt DateTime
+  snapshots     PriceSnapshot[]
+
+  @@unique([retailerId, externalId])
+  @@index([caliber, inStock])
+  @@index([productId])
+}
+
+model PriceSnapshot {
+  id        Int      @id @default(autoincrement())
+  listingId Int
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  price     Decimal  @db.Decimal(10, 2)
+  inStock   Boolean
+  at        DateTime @default(now())
+
+  @@index([listingId, at])
+}
+
+model CrawlRun {
+  id         Int       @id @default(autoincrement())
+  retailerId String
+  retailer   Retailer  @relation(fields: [retailerId], references: [id])
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  ok         Boolean?
+  pages      Int       @default(0)
+  seen       Int       @default(0)
+  ammo       Int       @default(0)
+  skipped    Int       @default(0)
+  error      String?
+}

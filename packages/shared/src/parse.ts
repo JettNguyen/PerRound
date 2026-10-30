@@ -50,13 +50,20 @@ export interface ParsedListing {
   upc?: string;
 }
 
+const FRACTIONS: Record<string, string> = { '½': '1/2', '¼': '1/4', '¾': '3/4', '⅛': '1/8', '⅜': '3/8', '⅝': '5/8', '⅞': '7/8' };
+
 export function normalizeTitle(raw: string): string {
   return raw
     .toLowerCase()
     .replace(/&amp;/g, '&')
     .replace(/&#8243;|&quot;|[“”″]/g, '"')
     .replace(/&#8217;|[‘’]/g, "'")
-    .replace(/[–—]/g, '-')
+    .replace(/[–—\u2010-\u2012\u2212]/g, '-')
+    .replace(/[\u00a0\u2000-\u200b\u202f]/g, ' ')
+    .replace(/×/g, 'x')
+    .replace(/[½¼¾⅛⅜⅝⅞]/g, (f) => ` ${FRACTIONS[f]}`)
+    // some stores' text arrives with "?" where a dash or space was ("30?30", "338?lapua")
+    .replace(/(\w)\?(?=\w)/g, '$1 ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -129,7 +136,9 @@ export function parseBullet(t: string, category: Category): Bullet | undefined {
   return undefined;
 }
 
-function parseShot(t: string): string | undefined {
+function parseShot(raw: string): string | undefined {
+  // "2 3/4" and "1 1/8 oz" are written with a space as often as a dash; "#7 1/2" means #7.5
+  const t = raw.replace(/\b(\d) (\d\/\d)\b/g, '$1-$2').replace(/#\s?(\d)-1\/2\b/g, '#$1.5');
   const len = t.match(/\b(2-?3\/4|2\.75|3-?1\/2|3\.5|3|2-?1\/2|2\.5)\s*(?:"|in\b|inch)/)?.[1];
   const oz = t.match(/\b(\d(?:-\d)?\/\d|\d(?:\.\d+)?|1-1\/8|1-1\/4)\s*oz\b/)?.[1];
   const size = t.match(/#\s?(\d(?:\.\d)?|bbb?|t)\b/)?.[1] ?? t.match(/\b(0{1,3}|[1-4])\s*-?\s*buck/)?.[1];
@@ -167,6 +176,33 @@ export function parseListing(title: string, extra = ''): ParsedListing | undefin
     limit: parseLimit(t),
     upc: parseUpc(title),
   };
+}
+
+/**
+ * Store categories mix loaded ammo with things that name a caliber but aren't ammo:
+ * guns, magazines, reloading parts, blanks and dummy rounds. An item has to show some
+ * sign of being ammo (a grain weight, the word ammo, shot or slug details) and no sign
+ * of being a gun or a part.
+ */
+export function isNotLoadedAmmo(title: string, extra = ''): boolean {
+  const t = normalizeTitle(title);
+  const hints = normalizeTitle(extra);
+  const hintsSayAmmo = /\b(ammo|ammunition|shotshells?|cartridges?)\b/.test(hints);
+  if (/\b(firearms?|handguns?|pistols?|rifles?|shotguns?|magazines?|optics?|gift cards?|holsters?|apparel|accessories|reloading|components?)\b/.test(hints) && !hintsSayAmmo) return true;
+  // never part of a loaded-ammo title
+  if (/\b\d{1,3}\+\d\b|\b(optic[- ](?:ready|cut)|slide|receiver|handguard|threaded|bullpup|brace|cerakote|nitride|backstrap|snap caps?|dummy|blanks?|choke tube|dry fire|gift card|cleaning|bore ?snake|die set|shell holder|smokeless powder|gunpowder|holster|speed ?loader|mag pouch)\b/.test(t)) return true;
+  // component bullets: a grain weight but no sign they come loaded
+  if (/\b(bullets?|projectiles?)\b/.test(t) && !hintsSayAmmo && !/\b(ammo|ammunition|rounds?|rds?|cartridges?)\b/.test(t)) return true;
+  const grain = /\b\d{1,3}(?:\.\d)? ?(?:gr|grains?)\b/.test(t);
+  const shotSpecs = /\b(?:\d{2}|410) ?(?:ga|gauge|bore)\b/.test(t) && /\b(buck|buckshot|slugs?|#\d|\d+(?:[-/]\d+)* ?(?:oz|ounces?)|shot|dram|shells?)\b/.test(t);
+  // these turn up in ammo titles too ("Swift A-Frame", "FliteControl Wad", "400 Rounds Ammo Can"), so they
+  // only count against an item that shows no load details
+  if (!grain && !shotSpecs && /\b(semi-auto|bolt action|lever action|pump action|revolver|rifle kit|synthetic stock|frame|grips?|barrel|magazines?|drum|ammo can|reloading|primers?|unprimed|once[-\s]fired|brass cases|brass casings|empty (?:brass|cases|hulls)|wads?)\b/.test(t)) return true;
+  const titleSaysAmmo =
+    grain || shotSpecs ||
+    /\b(ammo|ammunition|cartridges?|shotshells?)\b/.test(t) ||
+    /\b\d+ ?(?:round|rd|count|ct) (?:box|case|pack|brick)\b|\b(?:box|case|brick|pack) of \d+\b/.test(t);
+  return !(titleSaysAmmo || hintsSayAmmo);
 }
 
 /** Same load from any store, in any box size, lands in one group. */

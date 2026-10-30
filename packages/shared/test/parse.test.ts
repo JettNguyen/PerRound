@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { groupKey, parseListing, planOrder } from '../src/index.ts';
+import { groupKey, isNotLoadedAmmo, parseListing, planOrder } from '../src/index.ts';
 
 // Real listing titles copied from store pages, with what a shopper would read off them.
-const cases: [string, Partial<ReturnType<typeof parseListing>>][] = [
+const cases: [string, Partial<NonNullable<ReturnType<typeof parseListing>>>][] = [
   ['9mm Luger 124gr FMJ Remanufactured (Limited to 1 per purchase)', { caliber: '9mm-luger', grain: 124, bullet: 'fmj', condition: 'reman', limit: 1 }],
   ['[No need CA FFL] Sellier & Bellot SB9A Handgun 9mm Luger 115 gr Full Metal Jacket (FMJ) 50 Bx/ 20 Cs 754908500086', { caliber: '9mm-luger', brand: 'Sellier & Bellot', grain: 115, bullet: 'fmj', rounds: 50, upc: '754908500086' }],
   ['CCI 3509 Blazer 9mm Luger 115 gr (FMJ) 50 Bx/ 20 Cs 076683035097', { brand: 'Blazer', grain: 115, rounds: 50 }],
@@ -62,8 +62,46 @@ describe('planOrder', () => {
     expect(p.perRound).toBeCloseTo(0.21);
   });
   it('respects purchase limits', () => {
-    const p = planOrder(3.25, 50, { kind: 'flat', fee: 12 }, 500, 1);
+    const p = planOrder(3.25, 50, { kind: 'flat', fee: 12 }, 500, { limit: 1 });
     expect(p.packs).toBe(1);
     expect(p.limited).toBe(true);
+  });
+  it('says shipping is unknown under a free shipping line with no posted fee', () => {
+    const under = planOrder(19, 50, { kind: 'free_over', fee: null, over: 200 }, 500);
+    expect(under.subtotal).toBe(190);
+    expect(under.shipping).toBeNull();
+    expect(planOrder(19, 50, { kind: 'free_over', fee: null, over: 200 }, 600).shipping).toBe(0);
+  });
+  it('treats exactly the free shipping amount as not free', () => {
+    expect(planOrder(200, 1000, { kind: 'free_over', fee: 12, over: 200 }, 1000).shipping).toBe(12);
+  });
+  it('lets a listing that ships free override the store rule', () => {
+    expect(planOrder(400, 1000, { kind: 'unknown' }, 1000, { shipsFree: true }).shipping).toBe(0);
+  });
+});
+
+describe('isNotLoadedAmmo', () => {
+  it('keeps every real ammo title above', () => {
+    for (const [title] of cases) expect(isNotLoadedAmmo(title), title).toBe(false);
+  });
+
+  it('keeps ammo that only the store category marks as ammo', () => {
+    expect(isNotLoadedAmmo('Winchester Super-X 30-30 Win', 'Rifle Ammo')).toBe(false);
+  });
+
+  // titles from a store that sells guns and ammo in one catalog
+  it('drops guns, magazines and parts', () => {
+    const guns = [
+      'Derya Firearms DY9GUS DY9 9mm Luger 15+1 4.02" Gold TiN Steel Barrel, Black Nitride Optics Ready/Serrated Alloy Steel Slide',
+      'SHADOW SS-1211 MR920P 9MM BRZ/BLK - 1',
+      'Weatherby MCC01N308NR2B Mark V Carbon Compact 308 Win 20" Synthetic Stock - 1',
+      'WTHBY 3WRX2306SR4B 307 RANGE XP 2.0 3006 22+2 - 1',
+      'Derya Firearms 10LDY9US DY9 9mm 10rd - 1',
+      'LIFECARD 22LR TEXAS FLAG - 1',
+      'Hornady 9mm .355 115gr XTP Bullets 100ct',
+      'Starline 45 ACP Brass Cases 100ct',
+    ];
+    for (const g of guns) expect(isNotLoadedAmmo(g), g).toBe(true);
+    expect(isNotLoadedAmmo('Remington 870 Express 12 ga', 'Handgun Magazine Capacity > 10')).toBe(true);
   });
 });
