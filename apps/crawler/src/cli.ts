@@ -1,11 +1,12 @@
 import { prisma } from '@perround/db';
-import { crawlRetailer } from './ingest.ts';
+import { crawlRetailer, syncRetailer } from './ingest.ts';
 import { RETAILERS } from './retailers.ts';
 
 // npm run crawl                      every store, one after another
 // npm run crawl -- sgammo fastammo   just these stores
 // npm run crawl -- --pages 2 sgammo  only the first 2 catalog pages (for trying parser changes)
 // npm run crawl -- --show-unparsed   list ammo-looking titles the parser couldn't read
+// npm run crawl -- --stores-only     just update store names and shipping details from retailers.ts
 
 const args = process.argv.slice(2);
 const pagesAt = args.indexOf('--pages');
@@ -18,6 +19,13 @@ if (ids.length && targets.length !== ids.length) {
   const known = RETAILERS.map((r) => r.id).join(', ');
   console.error(`Unknown store in ${ids.join(', ')}. Known stores: ${known}`);
   process.exit(1);
+}
+
+if (args.includes('--stores-only')) {
+  for (const r of targets) await syncRetailer(r);
+  console.log(`Updated ${targets.length} stores.`);
+  await prisma.$disconnect();
+  process.exit(0);
 }
 
 // stores are crawled in parallel since each one has its own pace; requests to any one store stay one at a time

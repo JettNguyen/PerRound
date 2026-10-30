@@ -15,12 +15,17 @@ export interface CrawlResult {
   unparsed: string[];
 }
 
-export async function crawlRetailer(r: RetailerConfig, opts: { maxPages?: number } = {}): Promise<CrawlResult> {
+/** Writes the store's name and shipping details from retailers.ts to the database. */
+export async function syncRetailer(r: RetailerConfig): Promise<void> {
   const info = {
     name: r.name, homepage: r.homepage, platform: r.platform, shipping: r.shipping,
     shippingNote: r.shippingNote ?? null, shippingUrl: r.shippingUrl ?? null, noShipStates: r.noShipStates ?? [],
   };
   await prisma.retailer.upsert({ where: { id: r.id }, create: { id: r.id, ...info }, update: info });
+}
+
+export async function crawlRetailer(r: RetailerConfig, opts: { maxPages?: number } = {}): Promise<CrawlResult> {
+  await syncRetailer(r);
   const run = await prisma.crawlRun.create({ data: { retailerId: r.id } });
   const startedAt = run.startedAt;
   const res: CrawlResult = { retailer: r.id, ok: false, pages: 0, seen: 0, ammo: 0, skipped: 0, gone: 0, unparsed: [] };

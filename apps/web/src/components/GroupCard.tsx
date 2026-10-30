@@ -32,6 +32,7 @@ export function OrderLine({ offer, want }: { offer: Offer; want: number }) {
         {offer.shippingKnown ? ' delivered' : ''}
       </span>
       <span className="order-ship">{shippingLine(offer)}</span>
+      {!offer.fits && <span className="order-warn">More than the {want.toLocaleString('en-US')} you're buying</span>}
       {p.limited && (
         <span className="order-warn">
           Limit {offer.purchaseLimit} per order, so {p.rounds.toLocaleString('en-US')} of your {want.toLocaleString('en-US')}

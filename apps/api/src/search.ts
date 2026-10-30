@@ -77,6 +77,8 @@ export interface Offer {
   boxPerRound: number;
   plan: OrderPlan;
   shippingKnown: boolean;
+  /** false when the smallest order from this listing is more than twice what the shopper is buying */
+  fits: boolean;
   shipsFree: boolean;
   /** the store's shipping rule in words, e.g. "Free shipping over $200. Under that, figured at checkout" */
   shippingRule: string;
@@ -184,6 +186,7 @@ export function search(rows: OfferRow[], p: SearchParams): SearchResult {
       boxPerRound: r.price / rounds,
       plan,
       shippingKnown: plan.shipping !== null,
+      fits: plan.rounds <= p.want * 2,
       shipsFree: r.shipsFree,
       shippingRule: describeShipping(r.shipping),
       shippingNote: r.shippingNote,
@@ -193,8 +196,8 @@ export function search(rows: OfferRow[], p: SearchParams): SearchResult {
   }
 
   const key = sortValue[p.sort];
-  // in stock first, then the chosen order
-  const cmp = (a: Offer, b: Offer) => Number(b.inStock) - Number(a.inStock) || key(a) - key(b);
+  // in stock first, then offers sized for what the shopper is buying, then the chosen order
+  const cmp = (a: Offer, b: Offer) => Number(b.inStock) - Number(a.inStock) || Number(b.fits) - Number(a.fits) || key(a) - key(b);
 
   const byProduct = new Map<number, typeof offers>();
   for (const o of offers) {

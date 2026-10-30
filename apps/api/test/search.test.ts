@@ -35,6 +35,13 @@ describe('search', () => {
     expect(g.storeCount).toBe(2);
   });
 
+  it('puts a cheaper bulk case behind offers sized for the amount wanted', () => {
+    const rows = [row({ id: 1, price: 15, rounds: 50 }), row({ id: 2, productId: 2, price: 280, rounds: 2000 })];
+    const r = search(rows, { want: 500, sort: 'perRound' });
+    expect(r.groups.map((g) => g.best.id)).toEqual([1, 2]);
+    expect(r.groups[1]!.best.fits).toBe(false);
+  });
+
   it('leaves out prices too low to be real', () => {
     const rows = [row({ id: 1, price: 2, rounds: 250 }), row({ id: 2, productId: 2, price: 15, rounds: 50 })];
     expect(search(rows, { want: 500, sort: 'perRound', floor: 0.05 }).groups.map((g) => g.best.id)).toEqual([2]);
