@@ -1,116 +1,121 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { Group, Offer } from '../api.ts';
-import { ago, casingName, conditionName, loadName, money, packsText, perRound, shippingLine } from '../format.ts';
+import type { Group, Offer } from '@perround/shared';
+import { count, loadName, loadTags, orderText, packsText, perRound } from '../format.ts';
 
-export function StoreLink({ offer, children, className = 'btn btn-go' }: { offer: Offer; children: React.ReactNode; className?: string }) {
+export function StoreLink({
+  offer,
+  children = (
+    <span>
+      Go<span className="go-rest"> to store</span>
+    </span>
+  ),
+  quiet = false,
+}: {
+  offer: Offer;
+  children?: React.ReactNode;
+  quiet?: boolean;
+}) {
   return (
-    <a className={className} href={offer.url} target="_blank" rel="noopener nofollow">
+    <a className={`btn ${quiet ? 'btn-quiet' : 'btn-go'}`} href={offer.url} target="_blank" rel="noopener nofollow">
       {children}
+      <svg viewBox="0 0 16 16" aria-hidden="true" className="btn-arrow">
+        <path d="M5 11 11 5M6 5h5v5" />
+      </svg>
     </a>
   );
 }
 
-/** The price that matters, and whether shipping is in it. */
+/** The price that matters. "Shipped" only shows when shipping is really in it. */
 export function Price({ offer, size = 'lg' }: { offer: Offer; size?: 'lg' | 'sm' }) {
   return (
-    <div className={`price price-${size}`}>
+    <div className={`price price-${size}${offer.inStock ? '' : ' is-out'}`}>
       <span className="price-num">{perRound(offer.plan.perRound)}</span>
-      <span className={`price-tag ${offer.shippingKnown ? 'is-in' : 'is-out'}`}>
-        {offer.shippingKnown ? 'a round, shipped' : 'a round, plus shipping'}
-      </span>
+      <span className="price-unit">{offer.shippingKnown ? <span className="shipped">shipped</span> : 'a round'}</span>
     </div>
   );
 }
 
-export function OrderLine({ offer, want }: { offer: Offer; want: number }) {
+/** "Fast Ammo · 10 boxes of 50 for $99.20 + shipping", and anything that keeps the order from matching what you're buying. */
+export function OrderLine({ offer, want, store = true }: { offer: Offer; want: number; store?: boolean }) {
   const p = offer.plan;
+  const o = orderText(offer);
   return (
-    <p className="order">
-      <span>
-        {packsText(p.packs, offer.rounds)} for <strong>{money(p.total)}</strong>
-        {offer.shippingKnown ? ' delivered' : ''}
-      </span>
-      <span className="order-ship">{shippingLine(offer)}</span>
-      {!offer.fits && <span className="order-warn">More than the {want.toLocaleString('en-US')} you're buying</span>}
-      {p.limited && (
-        <span className="order-warn">
-          Limit {offer.purchaseLimit} per order, so {p.rounds.toLocaleString('en-US')} of your {want.toLocaleString('en-US')}
+    <>
+      <p className="order">
+        {store && <strong className="order-store">{offer.retailerName}</strong>}
+        <span>
+          {packsText(p.packs, offer.rounds)} for {o.total} <span className={o.known ? 'ship-in' : 'ship-out'}>{o.ship}</span>
         </span>
+      </p>
+      {!offer.fits && <p className="order-warn">Comes in {count(offer.rounds)}, more than the {count(want)} you're buying</p>}
+      {p.limited && (
+        <p className="order-warn">
+          Limit {offer.purchaseLimit} per order, so {count(p.rounds)} of your {count(want)}
+        </p>
       )}
-    </p>
+    </>
   );
 }
 
-export function GroupCard({ group, want, caliberName }: { group: Group; want: number; caliberName: string }) {
+export function GroupCard({ group, want, slug }: { group: Group; want: number; slug: string }) {
   const [open, setOpen] = useState(false);
   const best = group.best;
   const others = group.offers.slice(1);
-  const name = loadName(group, best.title);
-  const tags = [
-    casingName(group.casing),
-    group.condition !== 'new' ? conditionName(group.condition) : null,
-  ].filter(Boolean) as string[];
+  const tags = loadTags(group);
 
   return (
-    <article className={`card${best.inStock ? '' : ' card-out'}`}>
-      <div className="card-main">
-        <div className="card-head">
-          <h3 className="card-title">
-            <Link to={`/load/${group.productId}?want=${want}`}>{name}</Link>
-          </h3>
-          <p className="card-sub">
-            {caliberName}
-            {tags.map((t) => (
-              <span key={t} className={`tag${t === 'Remanufactured' || t === 'Factory seconds' ? ' tag-warn' : ''}`}>
-                {t}
-              </span>
-            ))}
-            {!best.inStock && <span className="tag tag-out">Out of stock</span>}
-          </p>
-        </div>
+    <article className={`card deal-card${best.inStock ? '' : ' is-out'}`}>
+      <div className="deal">
         <Price offer={best} />
-      </div>
-
-      <div className="card-store">
-        <div className="card-store-text">
-          <p className="store-name">
-            {best.retailerName}
-            <span className="checked">Checked {ago(best.lastSeenAt)}</span>
-          </p>
+        <div className="deal-info">
+          <h3 className="deal-name">
+            <Link to={`/ammo/${slug}/${group.productId}`}>{loadName(group, best.title)}</Link>
+          </h3>
+          {(tags.length > 0 || !best.inStock) && (
+            <p className="tags">
+              {!best.inStock && <span className="tag tag-out">Sold out</span>}
+              {tags.map((t) => (
+                <span key={t} className="tag">
+                  {t}
+                </span>
+              ))}
+            </p>
+          )}
           <OrderLine offer={best} want={want} />
         </div>
-        <StoreLink offer={best}>Go to store</StoreLink>
+        <div className="deal-go">
+          <StoreLink offer={best} />
+        </div>
       </div>
 
       {others.length > 0 && (
-        <div className="card-more">
-          <button type="button" className="more-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-            {open ? 'Hide' : 'See'} {others.length} more {others.length === 1 ? 'store' : 'stores'}
-            <span className="more-from">from {perRound(others[0]!.plan.perRound)}</span>
+        <>
+          <button type="button" className="more" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+            <span>
+              {open ? 'Hide' : others.length} other {others.length === 1 ? 'store' : 'stores'}
+              {!open && <span className="more-from"> from {perRound(others[0]!.plan.perRound)}</span>}
+            </span>
+            <svg viewBox="0 0 16 16" aria-hidden="true" className="chev">
+              <path d="m4 6 4 4 4-4" />
+            </svg>
           </button>
           {open && (
             <ul className="others">
               {others.map((o) => (
-                <li key={o.id}>
-                  <div>
-                    <p className="store-name">
-                      {o.retailerName}
-                      <span className="checked">Checked {ago(o.lastSeenAt)}</span>
-                    </p>
+                <li key={o.id} className="other">
+                  <div className="other-info">
                     <OrderLine offer={o} want={want} />
                   </div>
-                  <div className="others-right">
-                    <Price offer={o} size="sm" />
-                    <StoreLink offer={o} className="btn btn-quiet">
-                      Go
-                    </StoreLink>
-                  </div>
+                  <Price offer={o} size="sm" />
+                  <StoreLink offer={o} quiet>
+                    Go
+                  </StoreLink>
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </>
       )}
     </article>
   );

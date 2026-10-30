@@ -1,107 +1,62 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { caliberBySlug } from '@perround/shared';
-import type { SearchResponse, SortKey, Store } from '../api.ts';
-import { useApi } from '../useApi.ts';
+import { CATEGORY_NAMES, caliberBySlug, offerRows, search, type AmmoFile, type StoreInfo } from '@perround/shared';
+import { useData } from '../data.ts';
 import { usePrefs } from '../prefs.ts';
 import { ago, count } from '../format.ts';
 import { GroupCard } from '../components/GroupCard.tsx';
-import { WantControl } from '../components/WantControl.tsx';
-import { Filters, LIST_KEYS, activeCount, type FilterState } from '../components/Filters.tsx';
+import { WantSelect } from '../components/WantSelect.tsx';
+import { FilterSheet, LIST_KEYS, filterLabel, pickedCount, readFilters, writeFilters, type FilterState } from '../components/FilterSheet.tsx';
 
-const PAGE = 40;
-const SORTS: { key: SortKey; label: string }[] = [
-  { key: 'perRound', label: 'Lowest per round' },
-  { key: 'total', label: 'Lowest total' },
-  { key: 'price', label: 'Lowest box price' },
-  { key: 'newest', label: 'Price changed lately' },
-];
-
-function readFilters(sp: URLSearchParams): FilterState {
-  const listOf = (k: string) => sp.get(k)?.split(',').filter(Boolean) ?? [];
-  return {
-    brand: listOf('brand'),
-    bullet: listOf('bullet'),
-    casing: listOf('casing'),
-    condition: listOf('condition'),
-    grain: listOf('grain'),
-    store: listOf('store'),
-    match: sp.get('match') ?? '',
-    exclude: sp.get('exclude') ?? '',
-    stock: sp.get('stock') === 'all' ? 'all' : 'in',
-    shippingKnown: sp.get('shippingKnown') === '1',
-  };
-}
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
+const PAGE = 30;
 
 export function CaliberPage() {
   const { slug = '' } = useParams();
   const caliber = caliberBySlug(slug);
   const [sp, setSp] = useSearchParams();
   const [prefs, setPrefs] = usePrefs();
-  const [pages, setPages] = useState(1);
+  const [shown, setShown] = useState(PAGE);
   const [sheet, setSheet] = useState(false);
-  const sheetRef = useRef<HTMLDialogElement>(null);
 
+  const ammo = useData<AmmoFile>(caliber ? `ammo/${caliber.slug}.json` : null);
+  const stores = useData<StoreInfo[]>('stores.json');
   const filters = readFilters(sp);
-  const sort = (SORTS.find((s) => s.key === sp.get('sort'))?.key ?? 'perRound') as SortKey;
-  const words = useDebounced({ match: filters.match, exclude: filters.exclude }, 400);
+  const filterKey = sp.toString();
 
-  const path = useMemo(() => {
-    const q = new URLSearchParams({ caliber: slug, want: String(prefs.want), sort, limit: String(PAGE * pages) });
-    if (prefs.state) q.set('state', prefs.state);
-    for (const k of LIST_KEYS) if (filters[k].length) q.set(k, filters[k].join(','));
-    if (words.match) q.set('match', words.match);
-    if (words.exclude) q.set('exclude', words.exclude);
-    if (filters.stock === 'all') q.set('stock', 'all');
-    if (filters.shippingKnown) q.set('shippingKnown', '1');
-    return `/api/search?${q}`;
-    // filters is rebuilt from sp on every render, so sp stands in for it here
-  }, [slug, prefs.want, prefs.state, sort, pages, sp, words.match, words.exclude]);
-
-  const res = useApi<SearchResponse>(caliber ? path : null);
-  const stores = useApi<Store[]>('/api/stores');
+  const rows = useMemo(() => (ammo.data && stores.data ? offerRows(ammo.data, stores.data) : null), [ammo.data, stores.data]);
+  const result = useMemo(
+    () =>
+      rows &&
+      search(rows, {
+        want: prefs.want,
+        state: prefs.state || undefined,
+        includeOutOfStock: filters.soldOut,
+        bullets: filters.bullet,
+        casings: filters.casing,
+        grains: filters.grain.map(Number),
+        brands: filters.brand,
+        conditions: filters.condition,
+        retailers: filters.store,
+        floor: ammo.data?.floor,
+      }),
+    // filters is rebuilt from the URL on every render, so its string form stands in for it here
+    [rows, prefs.want, prefs.state, filterKey],
+  );
   const storeNames = useMemo(() => Object.fromEntries((stores.data ?? []).map((s) => [s.id, s.name])), [stores.data]);
+  const checked = stores.data?.map((s) => s.checkedAt ?? '').sort().at(-1) || null;
 
   useEffect(() => {
-    setPages(1);
-  }, [slug, sp, prefs.want, prefs.state]);
+    setShown(PAGE);
+  }, [slug, filterKey, prefs.want, prefs.state]);
   useEffect(() => {
     if (caliber) document.title = `${caliber.name} ammo prices | PerRound`;
   }, [caliber]);
-  useEffect(() => {
-    const d = sheetRef.current;
-    if (!d) return;
-    if (sheet && !d.open) d.showModal();
-    if (!sheet && d.open) d.close();
-  }, [sheet]);
-
-  const update = (next: Partial<FilterState> & { sort?: SortKey }) => {
-    const merged = { ...filters, sort, ...next };
-    const q = new URLSearchParams();
-    for (const k of LIST_KEYS) if (merged[k].length) q.set(k, merged[k].join(','));
-    if (merged.match) q.set('match', merged.match);
-    if (merged.exclude) q.set('exclude', merged.exclude);
-    if (merged.stock === 'all') q.set('stock', 'all');
-    if (merged.shippingKnown) q.set('shippingKnown', '1');
-    if (merged.sort !== 'perRound') q.set('sort', merged.sort);
-    setSp(q, { replace: true });
-  };
-  const clear = () => setSp(sort !== 'perRound' ? { sort } : {}, { replace: true });
 
   if (!caliber) {
     return (
-      <section className="page narrow">
+      <section className="wrap page narrow">
         <h1 className="h1">We don't track that caliber</h1>
-        <p>Pick one from the list on the home page, or search for it at the top.</p>
+        <p>Search for it at the top, or pick one from the home page.</p>
         <Link className="btn btn-go" to="/">
           See all calibers
         </Link>
@@ -109,122 +64,155 @@ export function CaliberPage() {
     );
   }
 
-  const data = res.data;
-  const nActive = activeCount(filters);
-  const filterPanel = data && (
-    <Filters
-      facets={data.facets}
-      storeNames={storeNames}
-      value={filters}
-      onChange={update}
-      onClear={clear}
-      state={prefs.state}
-      onState={(state) => setPrefs({ state })}
-    />
-  );
+  const update = (next: FilterState) => setSp(writeFilters(next), { replace: true });
+  const clearAll = () => {
+    update({ ...filters, ...Object.fromEntries(LIST_KEYS.map((k) => [k, []])) });
+    setPrefs({ state: '' });
+  };
+  const failed = ammo.status === 'error' ? ammo : stores.status === 'error' ? stores : null;
+  const nPicked = pickedCount(filters) + (prefs.state ? 1 : 0);
 
   return (
-    <div className="page results-page">
-      <header className="results-head">
-        <p className="eyebrow">{data ? `${data.caliber.category[0]!.toUpperCase()}${data.caliber.category.slice(1)} ammo` : ' '}</p>
+    <>
+      <header className="wrap results-head">
+        <p className="eyebrow">{CATEGORY_NAMES[caliber.category]} ammo</p>
         <h1 className="h1">{caliber.name}</h1>
-        <p className="results-meta" aria-live="polite">
-          {data ? (
+        <p className="meta" aria-live="polite">
+          {result ? (
             <>
-              {count(data.total)} {data.total === 1 ? 'load' : 'loads'} in {count(data.offerCount)} listings
-              {data.lastChecked && <> · checked {ago(data.lastChecked)}</>}
+              {count(result.total)} {result.total === 1 ? 'load' : 'loads'} at {result.stores} {result.stores === 1 ? 'store' : 'stores'}
+              {checked && <> · checked {ago(checked)}</>}
             </>
-          ) : res.status === 'loading' ? (
-            'Loading prices'
-          ) : null}
+          ) : (
+            ' '
+          )}
         </p>
-        {!!caliber.related?.length && (
-          <p className="related">
-            Also look at{' '}
-            {caliber.related.map((r) => (
-              <Link key={r} to={`/ammo/${r}`} className="chip chip-link">
-                {caliberBySlug(r)?.name ?? r}
-              </Link>
-            ))}
-          </p>
-        )}
       </header>
 
-      <div className="results-bar">
-        <WantControl want={prefs.want} onChange={(want) => setPrefs({ want })} />
-        <div className="bar-right">
-          <label className="sort">
-            <span>Sort</span>
-            <select id="sort" value={sort} onChange={(e) => update({ sort: e.target.value as SortKey })}>
-              {SORTS.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="btn btn-quiet filters-open" onClick={() => setSheet(true)}>
-            Filters{nActive ? ` (${nActive})` : ''}
+      <div className="toolbar">
+        <div className="wrap toolbar-in">
+          <WantSelect want={prefs.want} onChange={(want) => setPrefs({ want })} />
+          <button type="button" className="btn btn-quiet filter-btn" onClick={() => setSheet(true)} disabled={!result}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2 4h12M4.5 8h7M7 12h2" />
+            </svg>
+            Filters
+            {nPicked > 0 && <span className="badge">{nPicked}</span>}
           </button>
         </div>
-      </div>
-
-      <details className="how">
-        <summary>How we figure the price per round</summary>
-        <p>
-          For each listing we work out how many boxes you'd buy to get about {count(prefs.want)} rounds, add the store's
-          shipping when the store posts its rates, and divide by the rounds you'd get. That way a cheap box with costly
-          shipping doesn't beat a bulk case that ships free. When a store only shows shipping at checkout, the price says
-          "plus shipping" so you know it will go up.
-        </p>
-      </details>
-
-      <div className="results-body">
-        <aside className="filters-side" aria-label="Filters">
-          {filterPanel}
-        </aside>
-
-        <section className="results-list" aria-busy={res.status === 'loading'}>
-          {res.status === 'error' && (
-            <div className="notice notice-bad">
-              <p>{res.error}</p>
-              <button type="button" className="btn btn-quiet" onClick={res.reload}>
-                Try again
+        {nPicked > 0 && (
+          <div className="wrap picked">
+            {prefs.state && (
+              <button type="button" className="chip chip-on" onClick={() => setPrefs({ state: '' })} aria-label={`Remove ships to ${prefs.state}`}>
+                Ships to {prefs.state}
+                <span aria-hidden="true">×</span>
               </button>
-            </div>
-          )}
-          {data && data.groups.length === 0 && (
-            <div className="notice">
-              {nActive ? (
-                <>
-                  <p>Nothing matches these filters.</p>
-                  <button type="button" className="btn btn-quiet" onClick={clear}>
-                    Clear filters
+            )}
+            {LIST_KEYS.flatMap((k) =>
+              filters[k].map((v) => {
+                const text = filterLabel(k, v, storeNames);
+                return (
+                  <button
+                    key={`${k}:${v}`}
+                    type="button"
+                    className="chip chip-on"
+                    aria-label={`Remove ${text}`}
+                    onClick={() => update({ ...filters, [k]: filters[k].filter((x) => x !== v) })}
+                  >
+                    {text}
+                    <span aria-hidden="true">×</span>
                   </button>
-                </>
-              ) : (
-                <p>No store we check has {caliber.name} in stock right now. Check back later, or turn on "Include out of stock" in Filters to see what they usually carry.</p>
-              )}
-            </div>
-          )}
-          {data?.groups.map((g) => <GroupCard key={g.productId} group={g} want={prefs.want} caliberName={caliber.name} />)}
-          {data && data.groups.length < data.total && (
-            <button type="button" className="btn btn-quiet btn-block" disabled={res.status === 'loading'} onClick={() => setPages((p) => p + 1)}>
-              {res.status === 'loading' ? 'Loading' : `Show more (${count(data.total - data.groups.length)} left)`}
+                );
+              }),
+            )}
+            <button type="button" className="link-btn" onClick={clearAll}>
+              Clear all
             </button>
-          )}
-        </section>
+          </div>
+        )}
       </div>
 
-      <dialog ref={sheetRef} className="sheet" onClose={() => setSheet(false)} aria-label="Filters">
-        <div className="sheet-head">
-          <h2>Filters</h2>
-          <button type="button" className="btn btn-go" onClick={() => setSheet(false)}>
-            Show {data ? count(data.total) : ''} loads
+      <section className="wrap results" aria-busy={!result && !failed}>
+        {failed && (
+          <div className="notice notice-bad">
+            <p>{failed.error}</p>
+            <button type="button" className="btn btn-quiet" onClick={failed.reload}>
+              Try again
+            </button>
+          </div>
+        )}
+        {!result && !failed && [0, 1, 2, 3].map((i) => <div key={i} className="card skeleton" aria-hidden="true" />)}
+        {result && result.total === 0 && (
+          <div className="notice">
+            {nPicked ? (
+              <>
+                <p>Nothing matches these filters.</p>
+                <button type="button" className="btn btn-quiet" onClick={clearAll}>
+                  Clear filters
+                </button>
+              </>
+            ) : (
+              <p>No store we check has {caliber.name} in stock right now. Check back in a few hours.</p>
+            )}
+          </div>
+        )}
+        {result?.groups.slice(0, shown).map((g) => <GroupCard key={g.productId} group={g} want={prefs.want} slug={caliber.slug} />)}
+        {result && result.total > shown && (
+          <button type="button" className="btn btn-quiet btn-block" onClick={() => setShown((n) => n + PAGE)}>
+            Show more ({count(result.total - shown)} left)
           </button>
+        )}
+        {result && result.soldOut > 0 && (
+          <p className="soldout-note">
+            {filters.soldOut ? (
+              <button type="button" className="link-btn" onClick={() => update({ ...filters, soldOut: false })}>
+                Hide loads that are sold out
+              </button>
+            ) : (
+              <>
+                {count(result.soldOut)} more {result.soldOut === 1 ? 'load is' : 'loads are'} sold out everywhere.{' '}
+                <button type="button" className="link-btn" onClick={() => update({ ...filters, soldOut: true })}>
+                  Show them
+                </button>
+              </>
+            )}
+          </p>
+        )}
+
+        <div className="aside">
+          {!!caliber.related?.length && (
+            <p>
+              Also look at{' '}
+              {caliber.related.map((r, i) => (
+                <span key={r}>
+                  {i > 0 && ', '}
+                  <Link to={`/ammo/${r}`}>{caliberBySlug(r)?.name ?? r}</Link>
+                </span>
+              ))}
+              .
+            </p>
+          )}
+          <p>
+            Each price is per round for about {count(prefs.want)} rounds, using as few boxes as it takes. Shipping is extra unless
+            the price says shipped. Most stores only show shipping at checkout.
+          </p>
         </div>
-        {filterPanel}
-      </dialog>
-    </div>
+      </section>
+
+      {result && (
+        <FilterSheet
+          open={sheet}
+          onClose={() => setSheet(false)}
+          facets={result.facets}
+          storeNames={storeNames}
+          value={filters}
+          onChange={update}
+          state={prefs.state}
+          onState={(state) => setPrefs({ state })}
+          total={result.total}
+          shotgun={caliber.category === 'shotgun'}
+        />
+      )}
+    </>
   );
 }

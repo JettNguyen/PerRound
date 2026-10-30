@@ -13,11 +13,12 @@
     "db:stop": "sh scripts/db.sh stop",
     "db:migrate": "npm run migrate --workspace @perround/db",
     "crawl": "npm run crawl --workspace @perround/crawler --",
-    "dev:api": "npm run dev --workspace @perround/api",
-    "dev:web": "npm run dev --workspace @perround/web",
-    "dev": "npm run dev:api & npm run dev:web",
+    "dev": "npm run dev --workspace @perround/web",
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "export": "npm run export --workspace @perround/crawler",
+    "build": "npm run build --workspace @perround/web",
+    "deploy": "sh scripts/deploy-pages.sh"
   },
   "engines": {
     "node": ">=20.0.0"

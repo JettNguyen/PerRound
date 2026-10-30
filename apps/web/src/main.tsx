@@ -11,12 +11,12 @@ import './styles.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
           <Route path="ammo/:slug" element={<CaliberPage />} />
-          <Route path="load/:id" element={<LoadPage />} />
+          <Route path="ammo/:slug/:id" element={<LoadPage />} />
           <Route path="stores" element={<StoresPage />} />
           <Route path="*" element={<NotFound />} />
         </Route>

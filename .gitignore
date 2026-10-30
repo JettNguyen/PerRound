@@ -5,3 +5,5 @@ dist/
 .pgdata/
 *.log
 .DS_Store
+apps/web/public/data/
+.pages/

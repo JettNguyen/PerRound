@@ -1,4 +1,4 @@
-import { BULLET_NAMES, CASING_NAMES, CONDITION_NAMES, type Bullet, type Casing, type Condition } from '@perround/shared';
+import { BULLET_NAMES, CASING_NAMES, CONDITION_NAMES, type Bullet, type Casing, type Condition, type Offer } from '@perround/shared';
 
 /** 0.235 -> "23.5¢", 1.42 -> "$1.42" */
 export function perRound(dollars: number): string {
@@ -33,15 +33,24 @@ export function loadName(g: { brand: string | null; grain: number | null; bullet
   return parts.length >= 2 ? parts.join(' ') : fallback;
 }
 
-/** "10 × 50 rounds" or "1,000 rounds" */
-export function packsText(packs: number, roundsEach: number): string {
-  return packs > 1 ? `${packs} × ${count(roundsEach)} rounds` : `${count(roundsEach)} rounds`;
+/** Brass is what people expect, so only other casings and anything not new get a label. */
+export function loadTags(g: { casing: string | null; condition: string }): string[] {
+  const tags: string[] = [];
+  if (g.casing && g.casing !== 'brass' && g.casing !== 'nickel') tags.push(`${casingName(g.casing)} case`);
+  if (g.condition !== 'new') tags.push(conditionName(g.condition));
+  return tags;
 }
 
-export function shippingLine(o: { plan: { shipping: number | null }; shipsFree: boolean; shippingRule: string }): string {
+/** "10 boxes of 50", "2 cases of 1,000", or "1,000 rounds" */
+export function packsText(packs: number, roundsEach: number): string {
+  if (packs === 1) return `${count(roundsEach)} rounds`;
+  return `${packs} ${roundsEach >= 200 ? 'cases' : 'boxes'} of ${count(roundsEach)}`;
+}
+
+/** What the order costs and whether shipping is in it. */
+export function orderText(o: Offer): { total: string; ship: string; known: boolean } {
   const s = o.plan.shipping;
-  if (o.shipsFree) return 'Ships free';
-  if (s === 0) return 'Ships free at this size';
-  if (s !== null) return `${money(s)} shipping`;
-  return o.shippingRule;
+  if (o.shipsFree || s === 0) return { total: money(o.plan.total), ship: 'ships free', known: true };
+  if (s !== null) return { total: money(o.plan.total), ship: `with ${money(s)} shipping`, known: true };
+  return { total: money(o.plan.total), ship: '+ shipping', known: false };
 }

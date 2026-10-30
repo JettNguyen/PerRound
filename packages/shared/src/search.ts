@@ -1,4 +1,4 @@
-import { describeShipping, normalizeTitle, planOrder, type OrderPlan, type ShippingRule } from '@perround/shared';
+import { describeShipping, planOrder, type OrderPlan, type ShippingRule } from './shipping.ts';
 
 /** One store's listing, flattened with what we need from its store. */
 export interface OfferRow {
@@ -8,7 +8,6 @@ export interface OfferRow {
   retailerName: string;
   url: string;
   title: string;
-  imageUrl: string | null;
   price: number;
   rounds: number | null;
   inStock: boolean;
@@ -20,14 +19,12 @@ export interface OfferRow {
   casing: string | null;
   condition: string;
   shot: string | null;
-  lastSeenAt: Date;
-  lastChangedAt: Date;
+  /** when we last read the store's catalog, as an ISO date */
+  checkedAt: string | null;
   shipping: ShippingRule;
   shippingNote: string | null;
   noShipStates: string[];
 }
-
-export type SortKey = 'perRound' | 'price' | 'total' | 'newest';
 
 export interface SearchParams {
   /** about how many rounds the shopper wants; shipping and box count are planned around it */
@@ -35,25 +32,17 @@ export interface SearchParams {
   includeOutOfStock?: boolean;
   /** two-letter state; stores that won't ship there are left out */
   state?: string;
-  shippingKnownOnly?: boolean;
   brands?: string[];
   casings?: string[];
   conditions?: string[];
   bullets?: string[];
   retailers?: string[];
   grains?: number[];
-  grainMin?: number;
-  grainMax?: number;
-  /** words that must all appear in the title */
-  match?: string;
-  /** words that must not appear in the title */
-  exclude?: string;
-  sort: SortKey;
   /**
    * Box price per round below which a listing is assumed mislabeled (a case count on a box price, a
    * component sold as ammo) and left out. Set from the caliber's typical price.
    */
-  floor?: number;
+  floor?: number | null;
 }
 
 /**
@@ -62,13 +51,23 @@ export interface SearchParams {
  */
 export const FLOOR = { percentile: 0.1, share: 0.5 };
 
+/** FLOOR for a caliber, from the box price per round of each listing in stock. */
+export function floorOf(perRound: number[]): number | null {
+  if (!perRound.length) return null;
+  const s = [...perRound].sort((a, b) => a - b);
+  // the same interpolation as Postgres's percentile_cont
+  const at = FLOOR.percentile * (s.length - 1);
+  const lo = Math.floor(at);
+  const v = s[lo]! + (s[Math.min(lo + 1, s.length - 1)]! - s[lo]!) * (at - lo);
+  return v * FLOOR.share;
+}
+
 export interface Offer {
   id: number;
   retailerId: string;
   retailerName: string;
   url: string;
   title: string;
-  imageUrl: string | null;
   price: number;
   rounds: number;
   inStock: boolean;
@@ -83,8 +82,7 @@ export interface Offer {
   /** the store's shipping rule in words, e.g. "Free shipping over $200. Under that, figured at checkout" */
   shippingRule: string;
   shippingNote: string | null;
-  lastSeenAt: string;
-  lastChangedAt: string;
+  checkedAt: string | null;
 }
 
 export interface Group {
@@ -95,7 +93,6 @@ export interface Group {
   casing: string | null;
   condition: string;
   shot: string | null;
-  imageUrl: string | null;
   best: Offer;
   offers: Offer[];
   storeCount: number;
@@ -109,11 +106,12 @@ export interface FacetValue {
 export interface SearchResult {
   groups: Group[];
   total: number;
-  offerCount: number;
+  /** loads that match but are sold out everywhere; left out of `groups` unless includeOutOfStock */
+  soldOut: number;
+  /** stores with at least one offer in `groups` */
+  stores: number;
   facets: Record<'brand' | 'casing' | 'condition' | 'bullet' | 'grain' | 'retailer', FacetValue[]>;
 }
-
-const words = (s?: string) => (s ? normalizeTitle(s).split(' ').filter(Boolean) : []);
 
 function facet(rows: OfferRow[], pick: (r: OfferRow) => string | null | undefined): FacetValue[] {
   const counts = new Map<string, number>();
@@ -124,12 +122,12 @@ function facet(rows: OfferRow[], pick: (r: OfferRow) => string | null | undefine
   return [...counts].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
 }
 
-const sortValue: Record<SortKey, (o: Offer) => number> = {
-  perRound: (o) => o.plan.perRound,
-  price: (o) => o.price,
-  total: (o) => o.plan.total,
-  newest: (o) => -Date.parse(o.lastChangedAt),
-};
+// stores name steel and aluminum cases because they're the exception, so a listing that doesn't say is brass
+const casingOf = (r: OfferRow) => r.casing ?? 'brass';
+
+// in stock first, then offers sized for what the shopper is buying, then cheapest per round
+const cmp = (a: Offer, b: Offer) =>
+  Number(b.inStock) - Number(a.inStock) || Number(b.fits) - Number(a.fits) || a.plan.perRound - b.plan.perRound;
 
 /**
  * Turns a caliber's listings into ranked groups: the same load from different stores and box sizes
@@ -137,48 +135,36 @@ const sortValue: Record<SortKey, (o: Offer) => number> = {
  */
 export function search(rows: OfferRow[], p: SearchParams): SearchResult {
   const state = p.state?.toUpperCase();
-  const base = rows.filter(
-    (r) => r.rounds && r.rounds > 0 && (p.includeOutOfStock || r.inStock) && !(state && r.noShipStates.includes(state)),
-  );
+  const base = rows.filter((r) => r.rounds && r.rounds > 0 && !(state && r.noShipStates.includes(state)));
 
   // facet counts come from before the shopper's own filters, so picking one brand doesn't hide the others
+  const shown = p.includeOutOfStock ? base : base.filter((r) => r.inStock);
   const facets: SearchResult['facets'] = {
-    brand: facet(base, (r) => r.brand),
-    casing: facet(base, (r) => r.casing),
-    condition: facet(base, (r) => r.condition),
-    bullet: facet(base, (r) => r.bullet),
-    grain: facet(base, (r) => (r.grain ? String(r.grain) : null)),
-    retailer: facet(base, (r) => r.retailerId),
+    brand: facet(shown, (r) => r.brand),
+    casing: facet(shown, casingOf),
+    condition: facet(shown, (r) => r.condition),
+    bullet: facet(shown, (r) => r.bullet),
+    grain: facet(shown, (r) => (r.grain ? String(r.grain) : null)),
+    retailer: facet(shown, (r) => r.retailerId),
   };
 
-  const need = words(p.match);
-  const avoid = words(p.exclude);
   const inList = (list: string[] | undefined, v: string | null) => !list?.length || (v !== null && list.includes(v));
 
-  const offers: (Offer & { productId: number; row: OfferRow })[] = [];
+  const byProduct = new Map<number, (Offer & { row: OfferRow })[]>();
   for (const r of base) {
-    if (!inList(p.brands, r.brand) || !inList(p.casings, r.casing) || !inList(p.conditions, r.condition)) continue;
+    if (!inList(p.brands, r.brand) || !inList(p.casings, casingOf(r)) || !inList(p.conditions, r.condition)) continue;
     if (!inList(p.bullets, r.bullet) || !inList(p.retailers, r.retailerId)) continue;
     if (p.grains?.length && (r.grain === null || !p.grains.includes(r.grain))) continue;
-    if (p.grainMin !== undefined && (r.grain === null || r.grain < p.grainMin)) continue;
-    if (p.grainMax !== undefined && (r.grain === null || r.grain > p.grainMax)) continue;
-    if (need.length || avoid.length) {
-      const t = ` ${normalizeTitle(r.title)} `;
-      if (!need.every((w) => t.includes(w)) || avoid.some((w) => t.includes(w))) continue;
-    }
     const rounds = r.rounds!;
-    if (p.floor !== undefined && r.price / rounds < p.floor) continue;
+    if (p.floor != null && r.price / rounds < p.floor) continue;
     const plan = planOrder(r.price, rounds, r.shipping, p.want, { limit: r.purchaseLimit, shipsFree: r.shipsFree });
-    if (p.shippingKnownOnly && plan.shipping === null) continue;
-    offers.push({
+    const offer = {
       id: r.id,
-      productId: r.productId,
       row: r,
       retailerId: r.retailerId,
       retailerName: r.retailerName,
       url: r.url,
       title: r.title,
-      imageUrl: r.imageUrl,
       price: r.price,
       rounds,
       inStock: r.inStock,
@@ -190,31 +176,27 @@ export function search(rows: OfferRow[], p: SearchParams): SearchResult {
       shipsFree: r.shipsFree,
       shippingRule: describeShipping(r.shipping),
       shippingNote: r.shippingNote,
-      lastSeenAt: r.lastSeenAt.toISOString(),
-      lastChangedAt: r.lastChangedAt.toISOString(),
-    });
-  }
-
-  const key = sortValue[p.sort];
-  // in stock first, then offers sized for what the shopper is buying, then the chosen order
-  const cmp = (a: Offer, b: Offer) => Number(b.inStock) - Number(a.inStock) || Number(b.fits) - Number(a.fits) || key(a) - key(b);
-
-  const byProduct = new Map<number, typeof offers>();
-  for (const o of offers) {
-    const list = byProduct.get(o.productId);
-    if (list) list.push(o);
-    else byProduct.set(o.productId, [o]);
+      checkedAt: r.checkedAt,
+    };
+    const list = byProduct.get(r.productId);
+    if (list) list.push(offer);
+    else byProduct.set(r.productId, [offer]);
   }
 
   const groups: Group[] = [];
+  const stores = new Set<string>();
+  let soldOut = 0;
   for (const [productId, all] of byProduct) {
     all.sort(cmp);
     // a store often lists one load in several box sizes; only its best deal for this amount is worth showing
-    const stores = new Set<string>();
-    const list = all.filter((o) => !stores.has(o.retailerId) && stores.add(o.retailerId));
-    const first = list[0]!;
-    const r = first.row;
-    const clean = list.map(({ row: _row, productId: _pid, ...o }) => o);
+    const seen = new Set<string>();
+    let list = all.filter((o) => !seen.has(o.retailerId) && seen.add(o.retailerId));
+    if (!list[0]!.inStock) soldOut++;
+    if (!p.includeOutOfStock) list = list.filter((o) => o.inStock);
+    if (!list.length) continue;
+    const r = list[0]!.row;
+    const clean = list.map(({ row: _row, ...o }) => o);
+    for (const o of clean) stores.add(o.retailerId);
     groups.push({
       productId,
       brand: r.brand,
@@ -223,13 +205,12 @@ export function search(rows: OfferRow[], p: SearchParams): SearchResult {
       casing: r.casing,
       condition: r.condition,
       shot: r.shot,
-      imageUrl: list.find((o) => o.imageUrl)?.imageUrl ?? null,
       best: clean[0]!,
       offers: clean,
-      storeCount: list.length,
+      storeCount: clean.length,
     });
   }
   groups.sort((a, b) => cmp(a.best, b.best));
 
-  return { groups, total: groups.length, offerCount: offers.length, facets };
+  return { groups, total: groups.length, soldOut, stores: stores.size, facets };
 }

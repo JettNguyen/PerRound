@@ -12,7 +12,7 @@ export function Layout() {
   return (
     <div className="shell">
       <header className="top">
-        <div className="top-inner">
+        <div className="wrap top-inner">
           <Link to="/" className="wordmark" aria-label="PerRound home">
             <svg viewBox="0 0 32 32" aria-hidden="true" className="wordmark-mark">
               <path d="M12 25V12c0-3 1.6-6 4-7.5 2.4 1.5 4 4.5 4 7.5v13z" />
@@ -30,13 +30,12 @@ export function Layout() {
         <Outlet />
       </main>
       <footer className="foot">
-        <p>
-          Prices come from each store's own catalog, and every listing says when we last checked it. A store can change a
-          price before we check again, so the price at checkout is the one that counts.
-        </p>
-        <p>
-          <Link to="/stores">How each store charges for shipping</Link>
-        </p>
+        <div className="wrap">
+          <p>
+            Prices come from each store's own catalog. A store can change a price before we check again, so the price at
+            checkout is the one that counts. <Link to="/stores">How each store charges for shipping</Link>
+          </p>
+        </div>
       </footer>
     </div>
   );

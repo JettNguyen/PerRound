@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "crawl": "dotenv -e ../../.env -- tsx src/cli.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "export": "dotenv -e ../../.env -- tsx src/export.ts"
   },
   "dependencies": {
     "@perround/db": "*",

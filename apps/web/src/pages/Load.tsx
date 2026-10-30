@@ -1,150 +1,185 @@
-import { useEffect } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { caliberBySlug } from '@perround/shared';
-import type { HistoryPoint, LoadResponse } from '../api.ts';
-import { useApi } from '../useApi.ts';
+import { useEffect, useMemo } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { caliberBySlug, offerRows, search, type AmmoFile, type HistoryFile, type StoreInfo } from '@perround/shared';
+import { useData } from '../data.ts';
 import { usePrefs } from '../prefs.ts';
-import { ago, casingName, conditionName, loadName, perRound } from '../format.ts';
+import { ago, loadName, loadTags, perRound } from '../format.ts';
 import { OrderLine, Price, StoreLink } from '../components/GroupCard.tsx';
-import { WantControl } from '../components/WantControl.tsx';
+import { WantSelect } from '../components/WantSelect.tsx';
 
 /** Lowest in-stock box price per round, day by day. */
-function History({ points }: { points: HistoryPoint[] }) {
-  const known = points.filter((p) => p.low !== null) as { day: string; low: number }[];
+function History({ points }: { points: [day: string, low: number | null][] }) {
+  const known = points.filter((p): p is [string, number] => p[1] !== null);
   if (known.length < 2) {
-    return <p className="fhint">We started tracking this load recently. A price chart shows up here after a few days of checks.</p>;
+    return <p className="hint">We started tracking this load recently. A price chart shows up here after a few days of checks.</p>;
   }
   const W = 600;
-  const H = 160;
-  const pad = { l: 44, r: 12, t: 12, b: 24 };
-  const lows = known.map((p) => p.low);
+  const H = 180;
+  const pad = { l: 48, r: 14, t: 14, b: 26 };
+  const lows = known.map((p) => p[1]);
   const min = Math.min(...lows) * 0.95;
   const max = Math.max(...lows) * 1.05;
   const x = (i: number) => pad.l + (i / (points.length - 1)) * (W - pad.l - pad.r);
   const y = (v: number) => pad.t + (1 - (v - min) / (max - min || 1)) * (H - pad.t - pad.b);
-  let d = '';
-  points.forEach((p, i) => {
-    if (p.low === null) return;
+  let line = '';
+  points.forEach(([, low], i) => {
+    if (low === null) return;
     const prev = points[i - 1];
-    d += `${!prev || prev.low === null ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.low).toFixed(1)} `;
+    line += `${!prev || prev[1] === null ? 'M' : 'L'}${x(i).toFixed(1)},${y(low).toFixed(1)} `;
   });
-  const last = known[known.length - 1]!;
+  const last = points.at(-1)!;
   return (
     <figure className="history">
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Lowest price per round over ${points.length} days`}>
         {[min, (min + max) / 2, max].map((v) => (
           <g key={v}>
             <line x1={pad.l} x2={W - pad.r} y1={y(v)} y2={y(v)} className="grid" />
-            <text x={pad.l - 6} y={y(v) + 4} textAnchor="end" className="axis">
+            <text x={pad.l - 8} y={y(v) + 4} textAnchor="end" className="axis">
               {perRound(v)}
             </text>
           </g>
         ))}
-        <path d={d} className="line" fill="none" />
-        <circle cx={x(points.length - 1)} cy={y(last.low)} r="4" className="dot" />
+        <path d={line} className="line" fill="none" />
+        {last[1] !== null && <circle cx={x(points.length - 1)} cy={y(last[1])} r="4.5" className="dot" />}
         <text x={pad.l} y={H - 6} className="axis">
-          {points[0]!.day.slice(5).replace('-', '/')}
+          {Number(points[0]![0].slice(5, 7))}/{Number(points[0]![0].slice(8))}
         </text>
         <text x={W - pad.r} y={H - 6} textAnchor="end" className="axis">
           Today
         </text>
       </svg>
-      <figcaption>Lowest box price per round in stock anywhere, before shipping</figcaption>
+      <figcaption className="hint">Lowest box price per round in stock at any store, before shipping</figcaption>
     </figure>
   );
 }
 
 export function LoadPage() {
-  const { id = '' } = useParams();
-  const [sp] = useSearchParams();
+  const { slug = '', id = '' } = useParams();
+  const caliber = caliberBySlug(slug);
   const [prefs, setPrefs] = usePrefs();
-  const want = Number(sp.get('want')) || prefs.want;
-  const res = useApi<LoadResponse>(`/api/products/${encodeURIComponent(id)}?want=${prefs.want}`);
-  const data = res.data;
-  const cal = data ? caliberBySlug(data.product.caliber) : undefined;
-  const name = data ? loadName(data.product, data.offers[0]?.title ?? 'This load') : '';
+  const ammo = useData<AmmoFile>(caliber ? `ammo/${caliber.slug}.json` : null);
+  const stores = useData<StoreInfo[]>('stores.json');
+  const history = useData<HistoryFile>(caliber ? `history/${caliber.slug}.json` : null);
+  const productId = Number(id);
+
+  const group = useMemo(() => {
+    if (!ammo.data || !stores.data) return undefined;
+    const listings = ammo.data.listings.filter((l) => l[1] === productId);
+    const rows = offerRows({ ...ammo.data, listings }, stores.data);
+    return search(rows, { want: prefs.want, includeOutOfStock: true, floor: ammo.data.floor }).groups[0] ?? null;
+  }, [ammo.data, stores.data, productId, prefs.want]);
+  const name = group ? loadName(group, group.best.title) : '';
 
   useEffect(() => {
-    // a results link carries the amount the shopper was looking at; adopt it once on arrival
-    if (want !== prefs.want && sp.get('want')) setPrefs({ want });
-  }, []);
-  useEffect(() => {
-    if (data && cal) document.title = `${name} ${cal.name} | PerRound`;
-  }, [data, cal, name]);
+    if (group && caliber) document.title = `${name} ${caliber.name} | PerRound`;
+  }, [group, caliber, name]);
 
-  if (res.status === 'error' && !data) {
+  const failed = ammo.status === 'error' ? ammo : stores.status === 'error' ? stores : null;
+  if (failed) {
     return (
-      <section className="page narrow">
-        <h1 className="h1">Can't show this load</h1>
-        <p>{res.error}</p>
-        <Link className="btn btn-go" to="/">
-          Back to calibers
+      <section className="wrap page narrow">
+        <div className="notice notice-bad">
+          <p>{failed.error}</p>
+          <button type="button" className="btn btn-quiet" onClick={failed.reload}>
+            Try again
+          </button>
+        </div>
+      </section>
+    );
+  }
+  if (!caliber || group === null) {
+    return (
+      <section className="wrap page narrow">
+        <h1 className="h1">That load is gone</h1>
+        <p>No store we check lists it anymore. See what's in stock for the caliber instead.</p>
+        <Link className="btn btn-go" to={caliber ? `/ammo/${caliber.slug}` : '/'}>
+          {caliber ? `See ${caliber.name} prices` : 'See all calibers'}
         </Link>
       </section>
     );
   }
-  if (!data) return <section className="page narrow" aria-busy="true"><p>Loading prices</p></section>;
+  if (!group) {
+    return (
+      <section className="wrap page narrow" aria-busy="true">
+        <div className="card skeleton" aria-hidden="true" />
+      </section>
+    );
+  }
 
-  const p = data.product;
-  const inStock = data.offers.filter((o) => o.inStock);
-  const out = data.offers.filter((o) => !o.inStock);
+  const inStock = group.offers.filter((o) => o.inStock);
+  const out = group.offers.filter((o) => !o.inStock);
+  const tags = loadTags(group);
 
   return (
-    <div className="page narrow">
+    <div className="wrap page narrow">
       <p className="crumbs">
-        <Link to={`/ammo/${p.caliber}`}>{cal?.name ?? p.caliber}</Link>
+        <Link to={`/ammo/${caliber.slug}`}>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M10 4 6 8l4 4" />
+          </svg>
+          {caliber.name}
+        </Link>
       </p>
       <h1 className="h1">{name}</h1>
-      <p className="card-sub">
-        {cal?.name}
-        {p.casing && <span className="tag">{casingName(p.casing)}</span>}
-        {p.condition !== 'new' && <span className="tag tag-warn">{conditionName(p.condition)}</span>}
+      <p className="tags">
+        <span className="tag">{caliber.name}</span>
+        {tags.map((t) => (
+          <span key={t} className="tag">
+            {t}
+          </span>
+        ))}
       </p>
 
-      <WantControl want={prefs.want} onChange={(n) => setPrefs({ want: n })} />
+      <div className="load-bar">
+        <WantSelect want={prefs.want} onChange={(want) => setPrefs({ want })} />
+      </div>
 
-      <h2 className="h2">{inStock.length ? `In stock at ${new Set(inStock.map((o) => o.retailerId)).size} ${inStock.length === 1 ? 'store' : 'stores'}` : 'Out of stock everywhere we check'}</h2>
-      <ul className="offer-rows">
-        {inStock.map((o) => (
-          <li key={o.id}>
-            <div>
-              <p className="store-name">
-                {o.retailerName}
-                <span className="checked">Checked {ago(o.lastSeenAt)}</span>
-              </p>
-              <p className="offer-title">{o.title}</p>
-              <OrderLine offer={o} want={prefs.want} />
-              {o.shippingNote && <p className="fhint">{o.shippingNote}</p>}
-            </div>
-            <div className="others-right">
-              <Price offer={o} size="sm" />
-              <StoreLink offer={o}>Go to store</StoreLink>
-            </div>
-          </li>
-        ))}
-      </ul>
+      <section className="card panel">
+        <h2 className="panel-title">{inStock.length ? `In stock at ${inStock.length} ${inStock.length === 1 ? 'store' : 'stores'}` : 'Sold out everywhere we check'}</h2>
+        {inStock.length > 0 && (
+          <ul className="offers">
+            {inStock.map((o) => (
+              <li key={o.id} className="other">
+                <div className="other-info">
+                  <OrderLine offer={o} want={prefs.want} />
+                  <p className="hint">
+                    {(o.shippingNote ?? o.shippingRule).replace(/\.$/, '')}. Checked {ago(o.checkedAt)}.
+                  </p>
+                </div>
+                <Price offer={o} size="sm" />
+                <StoreLink offer={o} quiet>
+                  Go
+                </StoreLink>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
-      <h2 className="h2">Price over time</h2>
-      <History points={data.history} />
+      <section className="card panel">
+        <h2 className="panel-title">Price over time</h2>
+        <History points={history.data?.[productId] ?? []} />
+      </section>
 
       {out.length > 0 && (
-        <>
-          <h2 className="h2">Sold out at</h2>
-          <ul className="offer-rows offer-rows-out">
+        <section className="card panel">
+          <h2 className="panel-title">Sold out at</h2>
+          <ul className="offers">
             {out.map((o) => (
-              <li key={o.id}>
-                <div>
-                  <p className="store-name">{o.retailerName}</p>
-                  <p className="offer-title">{o.title}</p>
-                  <p className="fhint">Last in stock at {perRound(o.boxPerRound)} a round. Checked {ago(o.lastSeenAt)}.</p>
+              <li key={o.id} className="other is-out">
+                <div className="other-info">
+                  <p className="order">
+                    <strong className="order-store">{o.retailerName}</strong>
+                    <span>Was {perRound(o.boxPerRound)} a round</span>
+                  </p>
                 </div>
-                <StoreLink offer={o} className="btn btn-quiet">
+                <StoreLink offer={o} quiet>
                   See listing
                 </StoreLink>
               </li>
             ))}
           </ul>
-        </>
+        </section>
       )}
     </div>
   );
