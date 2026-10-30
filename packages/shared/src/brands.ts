@@ -1,0 +1,121 @@
+// Manufacturers as shoppers know them, with the spellings stores use for them.
+// The first alias is matched as written; longest match wins, so "federal premium" beats "federal".
+const BRANDS: [name: string, aliases: string[]][] = [
+  ['Federal', ['federal premium', 'federal', 'american eagle', 'fusion', 'syntech']],
+  ['Winchester', ['winchester', 'win usa', 'usa forged', 'super-x', 'super x']],
+  ['Remington', ['remington', 'umc', 'golden saber', 'core-lokt']],
+  ['Hornady', ['hornady', 'critical defense', 'critical duty', 'american gunner']],
+  ['CCI', ['cci', 'stinger', 'mini-mag', 'mini mag']],
+  ['Blazer', ['blazer']],
+  ['Speer', ['speer', 'gold dot', 'lawman']],
+  ['PMC', ['pmc', 'x-tac']],
+  ['Fiocchi', ['fiocchi']],
+  ['Sellier & Bellot', ['sellier & bellot', 'sellier and bellot', 'sellier bellot', 's&b']],
+  ['Magtech', ['magtech', 'cbc']],
+  ['Aguila', ['aguila']],
+  ['Sig Sauer', ['sig sauer', 'sig elite', 'sig v-crown']],
+  ['Prvi Partizan', ['prvi partizan', 'prvi', 'ppu']],
+  ['Tula', ['tula', 'tulammo']],
+  ['Wolf', ['wolf']],
+  ['Barnaul', ['barnaul']],
+  ['Brown Bear', ['brown bear']],
+  ['Silver Bear', ['silver bear']],
+  ['Golden Bear', ['golden bear']],
+  ['Norma', ['norma']],
+  ['Nosler', ['nosler']],
+  ['Barnes', ['barnes']],
+  ['Black Hills', ['black hills']],
+  ['Underwood', ['underwood']],
+  ['Buffalo Bore', ['buffalo bore']],
+  ['Liberty', ['liberty ammunition', 'liberty']],
+  ['Armscor', ['armscor']],
+  ['Turan', ['turan']],
+  ['ZSR', ['zsr']],
+  ['Sterling', ['sterling']],
+  ['Kaiser', ['kaiser']],
+  ['Igman', ['igman']],
+  ['Geco', ['geco']],
+  ['RWS', ['rws']],
+  ['Lapua', ['lapua']],
+  ['Eley', ['eley']],
+  ['SK', ['sk rifle match', 'sk standard plus', 'sk long range match']],
+  ['Estate', ['estate cartridge', 'estate']],
+  ['Rio', ['rio ammunition', 'rio ']],
+  ['NobelSport', ['nobelsport', 'nobel sport']],
+  ['Kent', ['kent cartridge', 'kent ']],
+  ['Hevi-Shot', ['hevi-shot', 'hevi shot', 'hevishot']],
+  ['Boss', ['boss shotshells', 'boss ']],
+  ['Browning', ['browning']],
+  ['Weatherby', ['weatherby']],
+  ['Frontier', ['frontier cartridge']],
+  ['Wilson Combat', ['wilson combat']],
+  ['HSM', ['hsm']],
+  ['Steinel', ['steinel']],
+  ['Ammo Inc', ['ammo inc', 'ammo, inc', 'streak']],
+  ['Jagemann', ['jagemann']],
+  ['Freedom Munitions', ['freedom munitions']],
+  ['Maxxtech', ['maxxtech']],
+  ['K7', ['k7 ']],
+  ['Veteran Ammo', ['veteran ammo', 'hyperion']],
+  ['Ugly', ['ugly ']],
+  ['Belom', ['belom']],
+  ['Lake City', ['lake city']],
+  ['IMI', ['imi ', 'israel military industries']],
+  ['Fort Scott Munitions', ['fort scott']],
+  ['Lehigh Defense', ['lehigh']],
+  ['Super Vel', ['super vel']],
+  ['SinterFire', ['sinterfire']],
+  ['Polycase', ['polycase']],
+  ['DoubleTap', ['doubletap', 'double tap']],
+  ['Gorilla', ['gorilla ammunition', 'gorilla ']],
+  ['Herter\'s', ['herter']],
+  ['Monarch', ['monarch']],
+  ['Red Army Standard', ['red army standard']],
+  ['Norinco', ['norinco']],
+  ['Tela', ['tela ']],
+  ['Hornet\'s Nest', ['hornets nest']],
+  ['Southern Munitions', ['southern munitions']],
+  ['Ammo Load Worldwide', ['ammo load worldwide']],
+  ['Federal Gold Medal', ['gold medal']],
+  ['Military Surplus', ['military surplus', 'mil surp']],
+  ['Lucky Gunner', ['lucky gunner']],
+  ['Black Basin', ['black basin']],
+  ['Sierra', ['sierra']],
+  ['Swiss P', ['swiss p']],
+  ['Ruag', ['ruag']],
+  ['Hornady Superformance', ['superformance']],
+  ['Steel Match', ['steel match']],
+  ['American Tactical', ['american tactical']],
+  ['Mesko', ['mesko']],
+  ['Applied Ballistics', ['applied ballistics']],
+  ['Berger', ['berger']],
+  ['Cutting Edge Bullets', ['cutting edge']],
+  ['Inceptor', ['inceptor']],
+  ['Dynamic Research Technologies', ['drt ']],
+  ['True Velocity', ['true velocity']],
+  ['Grizzly', ['grizzly cartridge', 'grizzly ammo']],
+  ['Corbon', ['corbon', 'cor-bon']],
+  ['Speer Lawman', ['lawman']],
+];
+
+// Product lines that name their own maker get folded into the maker above.
+const FOLD: Record<string, string> = {
+  'Federal Gold Medal': 'Federal',
+  'Hornady Superformance': 'Hornady',
+  'Speer Lawman': 'Speer',
+};
+
+const table = BRANDS.flatMap(([name, aliases]) => aliases.map((a) => ({ name: FOLD[name] ?? name, alias: a })))
+  .sort((a, b) => b.alias.length - a.alias.length);
+
+export function matchBrand(normalizedTitle: string): string | undefined {
+  const padded = ` ${normalizedTitle} `;
+  for (const { name, alias } of table) {
+    const a = alias.trimEnd();
+    const re = new RegExp(`(^|[^a-z0-9])${a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`);
+    if (re.test(padded)) return name;
+  }
+  return undefined;
+}
+
+export const BRAND_NAMES = [...new Set(BRANDS.map(([n]) => FOLD[n] ?? n))].sort();
