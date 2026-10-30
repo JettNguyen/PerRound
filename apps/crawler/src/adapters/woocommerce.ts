@@ -10,10 +10,21 @@ interface WooProduct {
   prices: { price: string; currency_minor_unit: number };
   images: { src: string }[];
   categories: { name: string; slug: string }[];
+  attributes?: { name: string; terms?: { name: string }[] }[];
   variations?: { id: number; attributes: { name: string; value: string }[] }[];
 }
 
 const money = (p: WooProduct['prices']) => Number(p.price) / 10 ** p.currency_minor_unit;
+
+// Some stores fill in a "Number of Rounds" or "Quantity" attribute even when the title leaves it out.
+function attributeRounds(p: WooProduct): number | undefined {
+  for (const a of p.attributes ?? []) {
+    if (!/\b(rounds?|quantity|count)\b/i.test(a.name) || a.terms?.length !== 1) continue;
+    const n = Number(a.terms[0]!.name.replace(/[^\d]/g, ''));
+    if (n > 1) return n;
+  }
+  return undefined;
+}
 
 // WooCommerce's public Store API: /wp-json/wc/store/v1/products, 100 products a page.
 export const woocommerce: Adapter = async function* ({ homepage, maxPages = 200, onPage }) {
@@ -52,6 +63,7 @@ export const woocommerce: Adapter = async function* ({ homepage, maxPages = 200,
         price: money(p.prices),
         inStock: p.is_in_stock,
         imageUrl: p.images[0]?.src,
+        roundsFallback: attributeRounds(p),
       };
     }
   }

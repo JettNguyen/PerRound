@@ -16,6 +16,8 @@ export interface RetailerConfig {
   noShipStates?: string[];
   /** listings this store ships free beyond its usual rule; titles saying "free shipping" always count */
   shipsFree?: (title: string) => boolean;
+  /** Shopify stores whose full catalog is too big to read: the ammo collections to read instead */
+  collections?: RegExp;
 }
 
 export const ADAPTERS: Record<RetailerConfig['platform'], Adapter> = { shopify, woocommerce };
@@ -41,6 +43,7 @@ export const RETAILERS: RetailerConfig[] = [
   },
   {
     id: 'fastammo',
+    collections: /-ammo$/,
     name: 'Fast Ammo',
     homepage: 'https://fastammo.com',
     platform: 'shopify',
@@ -61,6 +64,7 @@ export const RETAILERS: RetailerConfig[] = [
   },
   {
     id: 'sentry',
+    collections: /-ammo$/,
     name: 'Sentry Ammo',
     homepage: 'https://sentryammo.com',
     platform: 'shopify',

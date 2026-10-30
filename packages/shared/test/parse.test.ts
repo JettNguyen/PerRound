@@ -25,6 +25,7 @@ const cases: [string, Partial<NonNullable<ReturnType<typeof parseListing>>>][] =
   ['Speer Gold Dot .40 S&W 180gr GDHP - 50rd', { caliber: '40-sw', brand: 'Speer', bullet: 'hp', rounds: 50 }],
   ['Remington UMC .38 Special 130gr MC 50/bx', { caliber: '38-special', brand: 'Remington' }],
   ['Sig Sauer Elite V-Crown 10mm Auto 180gr JHP 20/Box', { caliber: '10mm-auto', brand: 'Sig Sauer', bullet: 'hp' }],
+  ['Federal, Premium, 6.5 CREEDMOOR, 120 Grain, Trophy Copper, Lead Free, 20 Round Box, 200 Round Per Case', { caliber: '6-5-creedmoor', grain: 120, rounds: 20 }],
   ['Barnes VOR-TX .300 AAC Blackout 110gr TAC-TX', { caliber: '300-blackout', brand: 'Barnes', bullet: 'copper' }],
 ];
 
@@ -85,6 +86,11 @@ describe('isNotLoadedAmmo', () => {
     for (const [title] of cases) expect(isNotLoadedAmmo(title), title).toBe(false);
   });
 
+  it('keeps loads named after their wad or casing', () => {
+    expect(isNotLoadedAmmo('Federal FliteControl Wad 12 Gauge Ammo 2 3/4" 00 Buckshot 9 Pellets - Box of 5')).toBe(false);
+    expect(isNotLoadedAmmo('Federal Swift A-Frame 44 Magnum Ammo 280 Grain Jacketed Hollow Point - Box of 20')).toBe(false);
+  });
+
   it('keeps ammo that only the store category marks as ammo', () => {
     expect(isNotLoadedAmmo('Winchester Super-X 30-30 Win', 'Rifle Ammo')).toBe(false);
   });
@@ -100,6 +106,10 @@ describe('isNotLoadedAmmo', () => {
       'LIFECARD 22LR TEXAS FLAG - 1',
       'Hornady 9mm .355 115gr XTP Bullets 100ct',
       'Starline 45 ACP Brass Cases 100ct',
+      'Claybuster 12 Gauge Shotshell Wads 1-1/8 oz Pink 500 Count - 1',
+      'Federal Podium Wad 12ga 1oz 500-Count - 1',
+      'X-Treme 45 (.452) 230 Gr RN Cast Lead Bullet (not ammo)',
+      'Lightning Ammo .380 .355" 95gr Round Nose Component Bullets Box of 100 - 1',
     ];
     for (const g of guns) expect(isNotLoadedAmmo(g), g).toBe(true);
     expect(isNotLoadedAmmo('Remington 870 Express 12 ga', 'Handgun Magazine Capacity > 10')).toBe(true);

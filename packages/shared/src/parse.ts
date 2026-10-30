@@ -79,8 +79,9 @@ export function parseRounds(t: string): number | undefined {
   const candidates: number[] = [];
   // "box of 50", "case of 1,000"
   for (const m of t.matchAll(/\b(?:box|case|pack|bag|can|tin|bucket|brick|carton|crate|tray)\s+of\s+(\d[\d,]*)/g)) candidates.push(num(m[1]!));
-  // "500 rounds", "50rd", "1000 round case", "20 shells" (but not "20 rounds per box")
-  for (const m of t.matchAll(/\b(\d[\d,]*)\s*-?\s*(?:rounds?|rds?|rnds?|ct|count|shells?|shotshells?|cartridges?)\b(?!\s*(?:per|\/|a)\s*(?:box|bx|pack))/g)) candidates.push(num(m[1]!));
+  // "500 rounds", "50rd", "1000 round case", "20 shells" (but not "20 rounds per box" or "200 rounds per case",
+  // which describe packing rather than what the price buys)
+  for (const m of t.matchAll(/\b(\d[\d,]*)\s*-?\s*(?:rounds?|rds?|rnds?|ct|count|shells?|shotshells?|cartridges?)\b(?!\s*(?:per|\/|a)\s*(?:box|bx|pack|case|cs))/g)) candidates.push(num(m[1]!));
   if (!candidates.length) {
     // distributor style "50 bx/ 20 cs" means the price is for one 50-round box
     const bx = t.match(/\b(\d{1,4})\s*(?:rds?|rounds?)?\s*\/\s*(?:bx|box)\b|\b(\d{1,4})\s*bx\b/);
@@ -190,14 +191,15 @@ export function isNotLoadedAmmo(title: string, extra = ''): boolean {
   const hintsSayAmmo = /\b(ammo|ammunition|shotshells?|cartridges?)\b/.test(hints);
   if (/\b(firearms?|handguns?|pistols?|rifles?|shotguns?|magazines?|optics?|gift cards?|holsters?|apparel|accessories|reloading|components?)\b/.test(hints) && !hintsSayAmmo) return true;
   // never part of a loaded-ammo title
-  if (/\b\d{1,3}\+\d\b|\b(optic[- ](?:ready|cut)|slide|receiver|handguard|threaded|bullpup|brace|cerakote|nitride|backstrap|snap caps?|dummy|blanks?|choke tube|dry fire|gift card|cleaning|bore ?snake|die set|shell holder|smokeless powder|gunpowder|holster|speed ?loader|mag pouch)\b/.test(t)) return true;
+  if (/\b\d{1,3}\+\d\b|\b(optic[- ](?:ready|cut)|slide|receiver|handguard|threaded|bullpup|brace|cerakote|nitride|backstrap|snap caps?|dummy|blanks?|choke tube|dry fire|gift card|cleaning|bore ?snake|die set|shell holder|smokeless powder|gunpowder|holster|speed ?loader|mag pouch|not ammo|wads|reloading|component bullets?)\b/.test(t)) return true;
+  if (/\bwad\b/.test(t) && !/\b(ammo|ammunition)\b/.test(t)) return true;
   // component bullets: a grain weight but no sign they come loaded
   if (/\b(bullets?|projectiles?)\b/.test(t) && !hintsSayAmmo && !/\b(ammo|ammunition|rounds?|rds?|cartridges?)\b/.test(t)) return true;
   const grain = /\b\d{1,3}(?:\.\d)? ?(?:gr|grains?)\b/.test(t);
   const shotSpecs = /\b(?:\d{2}|410) ?(?:ga|gauge|bore)\b/.test(t) && /\b(buck|buckshot|slugs?|#\d|\d+(?:[-/]\d+)* ?(?:oz|ounces?)|shot|dram|shells?)\b/.test(t);
   // these turn up in ammo titles too ("Swift A-Frame", "FliteControl Wad", "400 Rounds Ammo Can"), so they
   // only count against an item that shows no load details
-  if (!grain && !shotSpecs && /\b(semi-auto|bolt action|lever action|pump action|revolver|rifle kit|synthetic stock|frame|grips?|barrel|magazines?|drum|ammo can|reloading|primers?|unprimed|once[-\s]fired|brass cases|brass casings|empty (?:brass|cases|hulls)|wads?)\b/.test(t)) return true;
+  if (!grain && !shotSpecs && /\b(semi-auto|bolt action|lever action|pump action|revolver|rifle kit|synthetic stock|frame|grips?|barrel|magazines?|drum|ammo can|primers?|unprimed|once[-\s]fired|brass cases|brass casings|empty (?:brass|cases|hulls))\b/.test(t)) return true;
   const titleSaysAmmo =
     grain || shotSpecs ||
     /\b(ammo|ammunition|cartridges?|shotshells?)\b/.test(t) ||

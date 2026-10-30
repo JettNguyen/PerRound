@@ -7,12 +7,18 @@ export interface RawItem {
   price: number;
   inStock: boolean;
   imageUrl?: string;
+  /** round count from the size option the shopper picks; beats whatever the product title says */
+  roundsHint?: number;
+  /** round count from store data that may describe the box rather than this listing; used only when the title has none */
+  roundsFallback?: number;
 }
 
 export interface AdapterContext {
   homepage: string;
   maxPages?: number;
   onPage?: () => void;
+  /** Shopify only: read these collections (matched on handle) instead of the whole catalog */
+  collections?: RegExp;
 }
 
 export type Adapter = (ctx: AdapterContext) => AsyncGenerator<RawItem>;

@@ -26,7 +26,7 @@ export async function crawlRetailer(r: RetailerConfig, opts: { maxPages?: number
   const res: CrawlResult = { retailer: r.id, ok: false, pages: 0, seen: 0, ammo: 0, skipped: 0, gone: 0, unparsed: [] };
 
   try {
-    const items = ADAPTERS[r.platform]({ homepage: r.homepage, maxPages: opts.maxPages, onPage: () => res.pages++ });
+    const items = ADAPTERS[r.platform]({ homepage: r.homepage, maxPages: opts.maxPages, collections: r.collections, onPage: () => res.pages++ });
     for await (const item of items) {
       res.seen++;
       if (!Number.isFinite(item.price) || item.price <= 0 || isNotLoadedAmmo(item.title, item.extra)) {
@@ -53,7 +53,7 @@ export async function crawlRetailer(r: RetailerConfig, opts: { maxPages?: number
       const existing = await prisma.listing.findUnique({ where: { retailerId_externalId: { retailerId: r.id, externalId: item.externalId } } });
       const changed = !existing || !existing.price.equals(price) || existing.inStock !== item.inStock;
       const fields = {
-        url: item.url, title: item.title, imageUrl: item.imageUrl, price, rounds: parsed.rounds ?? null, inStock: item.inStock,
+        url: item.url, title: item.title, imageUrl: item.imageUrl, price, rounds: item.roundsHint ?? parsed.rounds ?? item.roundsFallback ?? null, inStock: item.inStock,
         purchaseLimit: parsed.limit ?? null, shipsFree: listingShipsFree(r, item.title), upc: parsed.upc ?? null, caliber: parsed.caliber, category: parsed.category,
         brand: parsed.brand ?? null, grain: parsed.grain ?? null, bullet: parsed.bullet ?? null, casing: parsed.casing ?? null,
         condition: parsed.condition, shot: parsed.shot ?? null, productId: product.id, lastSeenAt: now,
